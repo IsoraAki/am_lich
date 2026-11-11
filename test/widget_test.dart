@@ -1,30 +1,60 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
+import 'package:am_lich/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:am_lich/main.dart';
-
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  Widget app({DateTime? date}) => CalendarApp(
+    lunarPrimary: true,
+    saveMode: (_) async {},
+    clock: () => date ?? DateTime.utc(2024, 2, 10, 5),
+  );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  testWidgets('home shows lunar day and month toggles keep selected date', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app());
+    expect(find.text('01'), findsOneWidget);
+    expect(find.text('THÁNG 1 · 2024'), findsOneWidget);
+    expect(find.text('10/02/2024'), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    await tester.tap(find.text('Lịch tháng'));
+    await tester.pumpAndSettle();
+    expect(find.text('Tháng 1 · 2024'), findsOneWidget);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    await tester.tap(find.text('Dương lịch'));
+    await tester.pumpAndSettle();
+    expect(find.text('Tháng 2 · 2024'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Sau'));
+    await tester.pumpAndSettle();
+    expect(find.text('Tháng 3 · 2024'), findsOneWidget);
+
+    await tester.tap(find.text('Hôm nay'));
+    await tester.pumpAndSettle();
+    expect(find.text('Tháng 2 · 2024'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('calendar supports small, large text and tablet viewports', (
+    tester,
+  ) async {
+    for (final size in [const Size(320, 568), const Size(834, 1194)]) {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(1.5)),
+          child: app(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('Lịch tháng'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    }
   });
 }
