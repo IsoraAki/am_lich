@@ -16,14 +16,17 @@ void main() {
     expect(find.text('01'), findsOneWidget);
     expect(find.text('THÁNG 1 · 2024'), findsOneWidget);
     expect(find.text('10/02/2024'), findsOneWidget);
+    expect(find.text('Mùng 1 Tết Nguyên đán'), findsOneWidget);
 
     await tester.tap(find.text('Lịch tháng'));
     await tester.pumpAndSettle();
     expect(find.text('Tháng 1 · 2024'), findsOneWidget);
+    expect(find.byIcon(Icons.flag_rounded), findsAtLeastNWidgets(2));
 
     await tester.tap(find.text('Dương lịch'));
     await tester.pumpAndSettle();
     expect(find.text('Tháng 2 · 2024'), findsOneWidget);
+    expect(find.byIcon(Icons.flag_rounded), findsAtLeastNWidgets(2));
 
     await tester.tap(find.byTooltip('Sau'));
     await tester.pumpAndSettle();

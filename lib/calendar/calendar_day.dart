@@ -48,6 +48,31 @@ DateTime vietnamDate(DateTime instant) {
   return DateTime.utc(local.year, local.month, local.day);
 }
 
+const _solarHolidays = {
+  (1, 1): 'Tết Dương lịch',
+  (3, 8): 'Ngày Quốc tế Phụ nữ',
+  (4, 30): 'Ngày Giải phóng miền Nam, thống nhất đất nước',
+  (5, 1): 'Ngày Quốc tế Lao động',
+  (6, 1): 'Ngày Quốc tế Thiếu nhi',
+  (9, 2): 'Quốc khánh Việt Nam',
+  (10, 20): 'Ngày Phụ nữ Việt Nam',
+  (11, 20): 'Ngày Nhà giáo Việt Nam',
+  (12, 25): 'Lễ Giáng sinh',
+};
+
+const _lunarHolidays = {
+  (1, 1): 'Mùng 1 Tết Nguyên đán',
+  (1, 2): 'Mùng 2 Tết Nguyên đán',
+  (1, 3): 'Mùng 3 Tết Nguyên đán',
+  (1, 15): 'Tết Nguyên tiêu',
+  (3, 10): 'Giỗ Tổ Hùng Vương',
+  (4, 15): 'Lễ Phật đản',
+  (5, 5): 'Tết Đoan Ngọ',
+  (7, 15): 'Lễ Vu Lan',
+  (8, 15): 'Tết Trung thu',
+  (12, 23): 'Ông Công, ông Táo',
+};
+
 class CalendarDay {
   factory CalendarDay(DateTime solar) {
     final lunar = vietnameseLunarDate(solar);
@@ -73,6 +98,21 @@ class CalendarDay {
   String get lunarMonth => 'Tháng $month${leap ? ' nhuận' : ''}';
   String get solarLabel =>
       '${twoDigits(solar.day)}/${twoDigits(solar.month)}/${solar.year}';
+
+  List<String> get holidays {
+    final solarHoliday = _solarHolidays[(solar.month, solar.day)];
+    final lunarHoliday = leap ? null : _lunarHolidays[(month, day)];
+    return [
+      ?solarHoliday,
+      if (solar.year >= 2026 && solar.month == 11 && solar.day == 24)
+        'Ngày Văn hóa Việt Nam',
+      ?lunarHoliday,
+      if (month == 12 &&
+          day >= 29 &&
+          CalendarDay(solar.add(const Duration(days: 1))).month == 1)
+        'Giao thừa Tết Nguyên đán',
+    ];
+  }
 
   String get dayCanChi => _canChi(_julian + 9, _dayBranch);
   String get monthCanChi => _canChi(year * 12 + month + 3, month + 1);

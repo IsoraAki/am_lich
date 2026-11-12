@@ -1,5 +1,6 @@
 package com.isora.am_lich
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -10,12 +11,28 @@ import android.os.Build
 import android.os.Bundle
 import android.util.SizeF
 import android.widget.RemoteViews
-import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZonedDateTime
 
 class LunarWidgetProvider : AppWidgetProvider() {
+    companion object {
+        private const val ACTION_REFRESH_DATE = "com.isora.am_lich.REFRESH_WIDGET_DATE"
+        private val vietnamZone = ZoneId.of("Asia/Ho_Chi_Minh")
+
+        fun refreshAll(context: Context) {
+            val manager = AppWidgetManager.getInstance(context)
+            val provider = ComponentName(context, LunarWidgetProvider::class.java)
+            LunarWidgetProvider().onUpdate(context, manager, manager.getAppWidgetIds(provider))
+        }
+    }
+
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        val today = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"))
+        if (ids.isEmpty()) return
+        val today = ZonedDateTime.now(vietnamZone).toLocalDate()
+        val midnight = today.plusDays(1).atStartOfDay(vietnamZone).toInstant().toEpochMilli()
+        context.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP, midnight, refreshIntent(context)
+        )
         val epochDay = today.toEpochDay()
         val month = context.assets.open("widget_months.csv").bufferedReader().useLines { lines ->
             lines.map { row -> row.split(",").map(String::toLong) }
@@ -84,17 +101,22 @@ class LunarWidgetProvider : AppWidgetProvider() {
         onUpdate(context, manager, intArrayOf(appWidgetId))
     }
 
+    override fun onDisabled(context: Context) {
+        context.getSystemService(AlarmManager::class.java).cancel(refreshIntent(context))
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action in listOf(
-                Intent.ACTION_DATE_CHANGED, Intent.ACTION_TIME_CHANGED,
-                Intent.ACTION_TIMEZONE_CHANGED, Intent.ACTION_BOOT_COMPLETED,
-                Intent.ACTION_MY_PACKAGE_REPLACED
-            )) {
-            val manager = AppWidgetManager.getInstance(context)
-            onUpdate(context, manager, manager.getAppWidgetIds(
-                ComponentName(context, LunarWidgetProvider::class.java)
-            ))
+        when (intent.action) {
+            ACTION_REFRESH_DATE, Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED,
+            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> refreshAll(context)
         }
     }
+
+    private fun refreshIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(
+        context,
+        0,
+        Intent(context, LunarWidgetProvider::class.java).setAction(ACTION_REFRESH_DATE),
+        PendingIntent.FLAG_IMMUTABLE
+    )
 }

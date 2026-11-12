@@ -280,6 +280,25 @@ class _DayPage extends StatelessWidget {
             ),
           ],
         ),
+        for (final holiday in day.holidays)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Row(
+              children: [
+                const Icon(Icons.flag_rounded, size: 20, color: _red),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    holiday,
+                    style: const TextStyle(
+                      color: _red,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         const SizedBox(height: 16),
         const Divider(),
         const SizedBox(height: 16),
@@ -555,8 +574,13 @@ class _MonthPage extends StatelessWidget {
           spacing: 20,
           runSpacing: 8,
           children: [
-            _Legend(color: _gold, label: 'Hoàng đạo'),
-            _Legend(color: _muted, label: 'Hắc đạo'),
+            _Legend(icon: Icons.star_rounded, color: _gold, label: 'Hoàng đạo'),
+            _Legend(
+              icon: Icons.circle_outlined,
+              color: _muted,
+              label: 'Hắc đạo',
+            ),
+            _Legend(icon: Icons.flag_rounded, color: _red, label: 'Ngày lễ'),
           ],
         ),
         const SizedBox(height: 20),
@@ -575,7 +599,8 @@ class _MonthPage extends StatelessWidget {
             ),
             subtitle: Text(
               '${selected.weekday}, ${selected.solarLabel}\n'
-              'Ngày ${selected.dayCanChi} · ${selected.dayType}',
+              'Ngày ${selected.dayCanChi} · ${selected.dayType}'
+              '${selected.holidays.map((name) => '\n$name').join()}',
             ),
             isThreeLine: true,
             leading: Container(
@@ -633,6 +658,7 @@ class _DayCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = selected ? _red : _monthDayColor(day.solar);
+    final holidays = day.holidays;
     final primary = lunar ? day.day : day.solar.day;
     final secondary = lunar
         ? '${day.solar.day}/${day.solar.month}'
@@ -640,7 +666,8 @@ class _DayCell extends StatelessWidget {
     return Semantics(
       label:
           '${day.solarLabel}, âm lịch ${day.day}/${day.month}'
-          '${day.leap ? ' nhuận' : ''}, ${day.dayType}${today ? ', hôm nay' : ''}',
+          '${day.leap ? ' nhuận' : ''}, ${day.dayType}${today ? ', hôm nay' : ''}'
+          '${holidays.isEmpty ? '' : ', ${holidays.join(', ')}'}',
       selected: selected,
       button: true,
       child: ExcludeSemantics(
@@ -681,14 +708,27 @@ class _DayCell extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 5),
-                    Icon(
-                      day.isAuspicious
-                          ? Icons.star_rounded
-                          : Icons.circle_outlined,
-                      size: 9,
-                      color: selected
-                          ? Colors.white
-                          : (day.isAuspicious ? _gold : _muted),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          day.isAuspicious
+                              ? Icons.star_rounded
+                              : Icons.circle_outlined,
+                          size: 9,
+                          color: selected
+                              ? Colors.white
+                              : (day.isAuspicious ? _gold : _muted),
+                        ),
+                        if (holidays.isNotEmpty) ...[
+                          const SizedBox(width: 3),
+                          Icon(
+                            Icons.flag_rounded,
+                            size: 10,
+                            color: selected ? Colors.white : _red,
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),
@@ -702,7 +742,8 @@ class _DayCell extends StatelessWidget {
 }
 
 class _Legend extends StatelessWidget {
-  const _Legend({required this.color, required this.label});
+  const _Legend({required this.icon, required this.color, required this.label});
+  final IconData icon;
   final Color color;
   final String label;
 
@@ -710,11 +751,7 @@ class _Legend extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      Icon(
-        label == 'Hoàng đạo' ? Icons.star_rounded : Icons.circle_outlined,
-        size: 12,
-        color: color,
-      ),
+      Icon(icon, size: 12, color: color),
       const SizedBox(width: 8),
       Text(label, style: const TextStyle(color: _muted, fontSize: 11)),
     ],

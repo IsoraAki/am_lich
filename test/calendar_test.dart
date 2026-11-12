@@ -5,6 +5,40 @@ import 'package:am_lich/calendar/calendar_day.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('holidays follow solar dates and regular lunar months', () {
+    expect(
+      CalendarDay(DateTime.utc(2026, 9, 2)).holidays,
+      contains('Quốc khánh Việt Nam'),
+    );
+    expect(
+      CalendarDay(DateTime.utc(2024, 4, 18)).holidays,
+      contains('Giỗ Tổ Hùng Vương'),
+    );
+    expect(
+      CalendarDay(DateTime.utc(2025, 1, 28)).holidays,
+      contains('Giao thừa Tết Nguyên đán'),
+    );
+    expect(
+      CalendarDay(DateTime.utc(2024, 2, 9)).holidays,
+      contains('Giao thừa Tết Nguyên đán'),
+    );
+    expect(
+      CalendarDay(DateTime.utc(2020, 5, 7)).holidays,
+      contains('Lễ Phật đản'),
+    );
+    expect(
+      CalendarDay(DateTime.utc(2025, 11, 24)).holidays,
+      isNot(contains('Ngày Văn hóa Việt Nam')),
+    );
+    expect(
+      CalendarDay(DateTime.utc(2026, 11, 24)).holidays,
+      contains('Ngày Văn hóa Việt Nam'),
+    );
+    final leapMonth = CalendarDay(DateTime.utc(2020, 6, 6));
+    expect([leapMonth.day, leapMonth.month, leapMonth.leap], [15, 4, true]);
+    expect(leapMonth.holidays, isNot(contains('Lễ Phật đản')));
+  });
+
   test('Vietnamese new year fixtures and leap month', () {
     for (final date in [
       DateTime.utc(2007, 2, 17),
