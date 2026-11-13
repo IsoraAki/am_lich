@@ -1,0 +1,308 @@
+require "dotenv"
+require "fileutils"
+require "shellwords"
+
+Dotenv.load(File.expand_path("../env.properties", __dir__))
+
+def pubspec_path
+  File.expand_path("../../pubspec.yaml", __dir__)
+end
+
+def read_pubspec_version
+  path = pubspec_path
+  UI.user_error!("pubspec.yaml not found at #{path}") unless File.exist?(path)
+
+  content = File.read(path)
+  line = content.lines.find { |l| l =~ /^\s*version:\s*\S+/ }
+  UI.user_error!("Could not find 'version:' in pubspec.yaml") if line.to_s.strip.empty?
+
+  raw_version = line.sub(/^\s*version:\s*/, "").strip
+  match = raw_version.match(/^(?<name>[^\+]+)\+(?<code>\d+)$/)
+  UI.user_error!("Invalid pubspec version format '#{raw_version}'. Expected '<version_name>+<version_code>'") unless match
+
+  {
+    path: path,
+    content: content,
+    raw_version: raw_version,
+    version_name: match[:name],
+    version_code: match[:code].to_i
+  }
+end
+
+def write_pubspec_version(version_name:, version_code:)
+  UI.user_error!("version_code must be > 0") if version_code.to_i <= 0
+
+  info = read_pubspec_version
+  updated_line = "version: #{version_name}+#{version_code}"
+  updated = false
+  updated_content = info[:content].sub(/^\s*version:\s*\S+\s*$/) do
+    updated = true
+    updated_line
+  end
+
+  UI.user_error!("Failed to update pubspec.yaml version line") unless updated
+
+  File.write(info[:path], updated_content)
+  UI.success("Updated pubspec.yaml to #{updated_line}")
+  puts "PUBSPEC_VERSION_ONLY:#{version_name}+#{version_code}"
+end
+
+def resolve_package_name
+  package_name = ENV["ANDROID_PACKAGE_NAME"].to_s.strip
+  package_name.empty? ? "com.isora.am_lich" : package_name
+end
+
+def resolve_track(options)
+  (options[:track] || ENV["PLAY_TRACK"] || "production").to_s
+end
+
+def resolve_android_flavor(options)
+  flavor = (options[:flavor] || ENV["ANDROID_FLAVOR"]).to_s.strip
+  flavor.empty? ? nil : flavor
+end
+
+def resolve_fastlane_key_path!
+  json_key = ENV["FASTLANE_KEY_PATH"].to_s.strip
+  UI.user_error!("Missing FASTLANE_KEY_PATH in android/env.properties") if json_key.empty?
+
+  android_root = File.expand_path("..", __dir__)
+  resolved_path = File.expand_path(json_key, android_root)
+  ENV["FASTLANE_KEY_PATH"] = resolved_path
+
+  resolved_path
+end
+
+def project_root
+  File.expand_path("../..", __dir__)
+end
+
+def flutter_build_command(artifact:, flavor:)
+  command = "cd #{Shellwords.escape(project_root)}"
+  # All other projects retain their root .env / flutter_dotenv build flow.
+  env_file = nil
+  if env_file
+    override = ENV["ENV_FILE"].to_s.strip
+    env_file = override unless override.empty?
+    UI.user_error!("Missing release environment file: #{env_file}") unless File.file?(File.expand_path(env_file, project_root))
+    if File.file?(File.join(project_root, "scripts/check_release_config.dart"))
+      command += " && dart run scripts/check_release_config.dart #{Shellwords.escape(env_file)}"
+    end
+  end
+  command += " && flutter build #{artifact} --release"
+  command += " #{Shellwords.escape("--dart-define-from-file=#{env_file}")}" if env_file
+  command += " --flavor #{Shellwords.escape(flavor)}" if flavor
+  command
+end
+
+def release_aab_path(flavor)
+  if flavor
+    File.expand_path("build/app/outputs/bundle/#{flavor}Release/app-#{flavor}-release.aab", project_root)
+  else
+    File.expand_path("build/app/outputs/bundle/release/app-release.aab", project_root)
+  end
+end
+
+def play_images_validator_path
+  File.join(project_root, "auto", "check_play_images.dart")
+end
+
+def play_images_dir
+  File.join(project_root, "android", "fastlane", "metadata", "android", "vi", "images")
+end
+
+def image_extensions
+  [".png", ".jpg", ".jpeg"]
+end
+
+def env_yes?(key, default: true)
+  raw = ENV[key].to_s.strip.downcase
+  return default if raw.empty?
+
+  ["1", "true", "yes", "y"].include?(raw)
+end
+
+def stage_named_image_from_folder(base_name)
+  folder = File.join(play_images_dir, base_name)
+  return unless Dir.exist?(folder)
+
+  folder_images = Dir.children(folder)
+                     .map { |name| File.join(folder, name) }
+                     .select { |path| File.file?(path) && image_extensions.include?(File.extname(path).downcase) }
+  root_images = image_extensions
+                  .map { |ext| File.join(play_images_dir, "#{base_name}#{ext}") }
+                  .select { |path| File.file?(path) }
+
+  return unless folder_images.size == 1
+
+  source = folder_images.first
+  root_images.each { |path| FileUtils.rm_f(path) }
+  destination = File.join(play_images_dir, "#{base_name}#{File.extname(source).downcase}")
+  FileUtils.cp(source, destination)
+  UI.message("Staged #{base_name} image for Fastlane upload: #{destination}")
+end
+
+default_platform(:android)
+
+platform :android do
+  lane :fetch_version_code_from_play_store do |options|
+    track = resolve_track(options)
+    json_key = resolve_fastlane_key_path!
+    package_name = resolve_package_name
+
+    UI.message("Using JSON key from: #{json_key}")
+    UI.message("Fetching version code on track '#{track}' for package '#{package_name}'")
+
+    codes = google_play_track_version_codes(
+      package_name: package_name,
+      track: track,
+      json_key: json_key
+    )
+
+    latest = codes.map(&:to_i).max || 0
+    UI.success("Current version code on track '#{track}': #{latest}")
+    puts "STORE_CODE_ONLY:#{latest}"
+    latest
+  end
+
+  lane :get_local_version_code do
+    local = read_pubspec_version[:version_code]
+    UI.success("Local project version code (pubspec.yaml): #{local}")
+    puts "LOCAL_CODE_ONLY:#{local}"
+    local
+  end
+
+  lane :compare_version_codes do |options|
+    track = resolve_track(options)
+    store_code = fetch_version_code_from_play_store(track: track).to_i
+    local_code = get_local_version_code.to_i
+
+    if local_code < store_code
+      UI.important("Local code (#{local_code}) is BEHIND Play Store (#{store_code})")
+    elsif local_code > store_code
+      UI.important("Local code (#{local_code}) is AHEAD of Play Store (#{store_code})")
+    else
+      UI.success("Local code is UP-TO-DATE (#{local_code})")
+    end
+  end
+
+  lane :bump_version_code do |options|
+    track = resolve_track(options)
+    new_code = fetch_version_code_from_play_store(track: track).to_i + 1
+    UI.message("Bumping version code to #{new_code}")
+    set_version_code(version_code: new_code)
+  end
+
+  lane :set_version_code do |options|
+    new_code = options[:version_code].to_i
+    UI.user_error!("version_code must be > 0") if new_code <= 0
+    current = read_pubspec_version
+    write_pubspec_version(version_name: current[:version_name], version_code: new_code)
+  end
+
+  desc "Get the version name of the current project"
+  lane :get_version_name do
+    version_name = read_pubspec_version[:version_name]
+    UI.success("Current Version Name: #{version_name}")
+    puts "Current Version Name: #{version_name}"
+    puts "VERSION_NAME_ONLY:#{version_name}"
+  end
+
+  desc "Manually update version name"
+  lane :update_version_name do |options|
+    new_version_name = options[:version_name].to_s.strip
+    UI.user_error!("You must provide a new version name using the 'version_name:' parameter.") if new_version_name.empty?
+    UI.user_error!("Invalid version name. '+' is not allowed in version_name.") if new_version_name.include?("+")
+
+    UI.message("Updating version name to: #{new_version_name}")
+    current = read_pubspec_version
+    write_pubspec_version(version_name: new_version_name, version_code: current[:version_code])
+  end
+
+  desc "Build the release AAB without uploading it"
+  lane :build_aab do |options|
+    flavor = resolve_android_flavor(options)
+    sh(flutter_build_command(artifact: "appbundle", flavor: flavor))
+
+    aab_path = release_aab_path(flavor)
+    UI.message("Checking AAB at: #{aab_path}")
+    UI.user_error!("AAB not found at #{aab_path}") unless File.exist?(aab_path)
+    UI.success("AAB built: #{aab_path}")
+    puts "ARC_AAB_PATH:#{aab_path}"
+    aab_path
+  end
+
+  desc "Upload the AAB to Google Play"
+  lane :upload_to_chplay do |options|
+    update_description = (options[:update_description] || ENV["UPDATE_DESCRIPTION"]).to_s.strip
+    upload_play_images = env_yes?("UPLOAD_PLAY_IMAGES", default: true)
+
+    track = resolve_track(options)
+    flavor = resolve_android_flavor(options)
+    json_key = resolve_fastlane_key_path!
+    package_name = resolve_package_name
+
+    changelog_locale = "vi"
+    metadata_root = File.expand_path("metadata/android", __dir__)
+    changelog_dir = File.join(metadata_root, changelog_locale, "changelogs")
+    FileUtils.mkdir_p(changelog_dir)
+
+    version_code = read_pubspec_version[:version_code]
+    default_changelog = File.join(changelog_dir, "default.txt")
+    versioned_changelog = File.join(changelog_dir, "#{version_code}.txt")
+
+    if update_description.empty?
+      has_versioned_changelog = File.exist?(versioned_changelog) && !File.read(versioned_changelog).strip.empty?
+      has_default_changelog = File.exist?(default_changelog) && !File.read(default_changelog).strip.empty?
+
+      unless has_versioned_changelog || has_default_changelog
+        UI.user_error!(
+          "Missing update_description and no changelog found. " \
+          "Pass update_description or create #{versioned_changelog} (or #{default_changelog})."
+        )
+      end
+
+      if has_versioned_changelog
+        UI.message("Using existing changelog file: #{versioned_changelog}")
+      else
+        UI.message("Using fallback changelog file: #{default_changelog}")
+      end
+    else
+      File.write(default_changelog, update_description)
+      File.write(versioned_changelog, update_description)
+      UI.message("Prepared changelogs for locale '#{changelog_locale}' and version code #{version_code}")
+    end
+
+    if upload_play_images
+      sh("dart #{Shellwords.escape(play_images_validator_path)}") unless ENV["SKIP_PLAY_IMAGE_CHECK"] == "1"
+      stage_named_image_from_folder("icon")
+      stage_named_image_from_folder("featureGraphic")
+    else
+      UI.message("Skipping Google Play listing images/app icon/screenshots upload.")
+    end
+
+    skip_build_raw = (options[:skip_build] || ENV["SKIP_PLAY_BUILD"]).to_s.strip.downcase
+    skip_build = ["1", "true", "yes", "y"].include?(skip_build_raw)
+    if skip_build
+      UI.message("Using the existing AAB from the separate build step.")
+    else
+      build_aab(options)
+    end
+
+    aab_path = release_aab_path(flavor)
+    UI.message("Checking AAB at: #{aab_path}")
+    UI.user_error!("AAB not found at #{aab_path}") unless File.exist?(aab_path)
+    puts "ARC_AAB_PATH:#{aab_path}"
+
+    supply(
+      track: track,
+      package_name: package_name,
+      aab: aab_path,
+      json_key: json_key,
+      metadata_path: metadata_root,
+      skip_upload_changelogs: false,
+      skip_upload_metadata: true,
+      skip_upload_images: !upload_play_images,
+      skip_upload_screenshots: !upload_play_images
+    )
+  end
+end
