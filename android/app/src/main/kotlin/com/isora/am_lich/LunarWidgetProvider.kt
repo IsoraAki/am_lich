@@ -49,6 +49,7 @@ class LunarWidgetProvider : AppWidgetProvider() {
         var dayText = "—"
         var monthText = "Hỗ trợ năm 1900–2199"
         var compactMonthText = monthText
+        var narrowMonthText = "1900–2199"
         if (month != null && today.year in 1900..2199) {
             val lunarDay = epochDay - month[0] + 1
             val lunarMonth = month[1].toInt()
@@ -59,9 +60,11 @@ class LunarWidgetProvider : AppWidgetProvider() {
             dayText = lunarDay.toString().padStart(2, '0')
             monthText = "$label âm lịch · $kind"
             compactMonthText = "$label · $kind"
+            narrowMonthText = label
         }
         val weekdays = listOf("Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ nhật")
-        val solarDate = "${today.dayOfMonth}/${today.monthValue}/${today.year}"
+        val shortSolarDate = "${today.dayOfMonth}/${today.monthValue}"
+        val solarDate = "$shortSolarDate/${today.year}"
         val solarText = "${weekdays[today.dayOfWeek.value - 1]} · $solarDate"
         val launch = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -78,19 +81,27 @@ class LunarWidgetProvider : AppWidgetProvider() {
                 setOnClickPendingIntent(R.id.widget_root, pending)
             }
 
+        val narrow = render(R.layout.lunar_widget_compact, narrowMonthText, "DL $shortSolarDate")
         val compact = render(R.layout.lunar_widget_compact, compactMonthText, solarDate)
         val regular = render(R.layout.lunar_widget, monthText, solarText)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val responsive = RemoteViews(mapOf(
+                SizeF(90f, 48f) to narrow,
                 SizeF(180f, 48f) to compact,
                 SizeF(180f, 140f) to regular
             ))
             ids.forEach { id -> manager.updateAppWidget(id, responsive) }
         } else {
             ids.forEach { id ->
-                val height = manager.getAppWidgetOptions(id)
-                    .getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 140)
-                manager.updateAppWidget(id, if (height in 1 until 140) compact else regular)
+                val options = manager.getAppWidgetOptions(id)
+                val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 90)
+                val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 48)
+                val views = when {
+                    width < 180 -> narrow
+                    height < 140 -> compact
+                    else -> regular
+                }
+                manager.updateAppWidget(id, views)
             }
         }
     }
